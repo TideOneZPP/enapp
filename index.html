@@ -640,11 +640,17 @@ function reportPage(){
     <div class="title-sm" style="margin-bottom:8px;">📝 今日总结</div>
     <div style="font-size:14px;line-height:1.9;color:#444;">${tips.map(t=>'· '+t).join('<br>')}</div></div>`));
 
-  // —— 清空按钮 ——
-  app.appendChild($(`<button class="btn btn-ghost" id="clr" style="color:#c92a52;">🗑️ 清空所有学习记录</button>`));
+  // —— 清空按钮（弱化 + 家长验证门，防孩子误点）——
+  app.appendChild($(`<div style="text-align:center;margin-top:14px;">
+    <button id="clr" style="background:none;border:none;color:#c9c9c9;font-size:12px;text-decoration:underline;cursor:pointer;padding:8px;">清空学习记录（需家长验证）</button></div>`));
   app.querySelector('#clr').onclick=()=>{
-    if(confirm('确定清空所有学习记录和错词本吗？此操作不可恢复。')){
-      LOG={}; WRONG={}; saveLog(); reportPage();
+    const a=11+Math.floor(Math.random()*78), b=11+Math.floor(Math.random()*78);  // 两位数加法
+    const ans=prompt('⚠️ 清空后所有学习记录和错词本将永久无法恢复！\n\n请家长输入答案确认：'+a+' + '+b+' = ?');
+    if(ans===null) return;                       // 取消
+    if(parseInt(ans,10)===a+b){
+      LOG={}; WRONG={}; saveLog(); toast('🗑️ 已清空',1200); reportPage();
+    }else{
+      alert('答案不正确，已取消清空（记录安全）。');
     }
   };
 }
