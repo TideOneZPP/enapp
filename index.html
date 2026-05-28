@@ -320,6 +320,38 @@ function checkIn(){
 }
 let isNewCheckIn = checkIn();
 
+/* ============================================================
+   学习记录采集层：每日各模块时长 / 正确率 / 错词本
+   数据全部存本地 localStorage，不上传
+   ============================================================ */
+const MODE_NAME = {learn:'学单词', listen:'听力发音', spell:'拼一拼', quiz:'闯关测验', match:'翻牌配对', whack:'打地鼠'};
+let LOG   = JSON.parse(localStorage.getItem('en_log')||'{}');   // { 日期: {time:{mode:ms}, correct, total} }
+let WRONG = JSON.parse(localStorage.getItem('en_wrong')||'{}'); // { en: {en,cn,pic,count,last} }
+function saveLog(){ localStorage.setItem('en_log', JSON.stringify(LOG)); localStorage.setItem('en_wrong', JSON.stringify(WRONG)); }
+function dayBucket(d){ d=d||todayStr(); if(!LOG[d]) LOG[d]={time:{},correct:0,total:0}; return LOG[d]; }
+
+// —— 时长统计：进入模块计时，离开时累加 ——
+let _act=null;
+function startActivity(mode){ endActivity(); _act={mode, t0:Date.now()}; }
+function endActivity(){
+  if(!_act) return;
+  const ms=Date.now()-_act.t0;
+  if(ms>=1000){ const b=dayBucket(); b.time[_act.mode]=(b.time[_act.mode]||0)+ms; saveLog(); }
+  _act=null;
+}
+document.addEventListener('visibilitychange', ()=>{ if(document.hidden) endActivity(); });
+window.addEventListener('pagehide', endActivity);
+
+// —— 正确率 & 错词本 ——
+function logResult(correct, total){ const b=dayBucket(); b.correct+=correct; b.total+=total; saveLog(); }
+function logWrong(w){
+  if(!w||!w.en) return;
+  const k=w.en; if(!WRONG[k]) WRONG[k]={en:w.en,cn:w.cn,pic:w.pic,count:0,last:''};
+  WRONG[k].count++; WRONG[k].last=todayStr(); saveLog();
+}
+function answeredRight(w){ if(w&&w.en&&WRONG[w.en]){ WRONG[w.en].count=Math.max(0,WRONG[w.en].count-1); if(WRONG[w.en].count===0) delete WRONG[w.en]; saveLog(); } }
+function fmtMs(ms){ const s=Math.round(ms/1000); if(s<60) return s+'秒'; const m=Math.floor(s/60); return m+'分'+(s%60?(s%60)+'秒':''); }
+
 const $ = (h)=>{ const d=document.createElement('div'); d.innerHTML=h.trim(); return d.firstChild; };
 function shuffle(a){ a=a.slice(); for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]];} return a; }
 function allWords(){ return UNITS.flatMap(u=>u.words); }
@@ -435,9 +467,105 @@ function recordSay(target, onResult){  // 录一次，回调(score, heard)
 }
 
 /* ============================================================
+   学习报告（给家长看）：每日时长 / 正确率 / 错词本 / 总结
+   ============================================================ */
+function reportPage(){
+  endActivity();   // 先结算当前时长
+  app.innerHTML='';
+  app.appendChild($(`<div class="topbar"><button class="back">← 返回</button><div class="title-sm">📊 学习报告</div></div>`));
+  app.querySelector('.back').onclick=home;
+
+  const today = todayStr();
+  const tB = LOG[today] || {time:{},correct:0,total:0};
+  const todayMs = Object.values(tB.time).reduce((a,b)=>a+b,0);
+  // 累计（所有日期）
+  let allMs=0, allCorrect=0, allTotal=0, activeDays=Object.keys(LOG).length;
+  Object.values(LOG).forEach(d=>{ allMs+=Object.values(d.time||{}).reduce((a,b)=>a+b,0); allCorrect+=d.correct||0; allTotal+=d.total||0; });
+  const todayAcc = tB.total? Math.round(tB.correct/tB.total*100) : null;
+  const allAcc   = allTotal? Math.round(allCorrect/allTotal*100) : null;
+
+  // —— 今日卡片 ——
+  const todayModes = Object.keys(tB.time).sort((a,b)=>tB.time[b]-tB.time[a]);
+  const modeRows = todayModes.length
+    ? todayModes.map(m=>`<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px dashed #eee;"><span>${MODE_NAME[m]||m}</span><b>${fmtMs(tB.time[m])}</b></div>`).join('')
+    : '<div style="color:#8a8a8a;padding:6px 0;">今天还没开始学，去玩一个吧～</div>';
+  app.appendChild($(`
+    <div class="card">
+      <div class="title-sm" style="margin-bottom:8px;">📅 今天 (${today})</div>
+      <div style="display:flex;gap:10px;margin-bottom:10px;">
+        <div style="flex:1;background:#fff3e6;border-radius:14px;padding:12px;text-align:center;">
+          <div style="font-size:24px;font-weight:800;color:#f4742a;">${fmtMs(todayMs)}</div>
+          <div style="font-size:12px;color:#8a8a8a;">学习时长</div></div>
+        <div style="flex:1;background:#e7f5ff;border-radius:14px;padding:12px;text-align:center;">
+          <div style="font-size:24px;font-weight:800;color:#1971c2;">${todayAcc!==null?todayAcc+'%':'—'}</div>
+          <div style="font-size:12px;color:#8a8a8a;">答题正确率</div></div>
+        <div style="flex:1;background:#ebfbee;border-radius:14px;padding:12px;text-align:center;">
+          <div style="font-size:24px;font-weight:800;color:#2b8a3e;">${tB.total||0}</div>
+          <div style="font-size:12px;color:#8a8a8a;">做题数</div></div>
+      </div>
+      <div style="font-size:14px;font-weight:700;margin:6px 0 2px;">各模块用时：</div>
+      ${modeRows}
+    </div>`));
+
+  // —— 累计卡片 ——
+  app.appendChild($(`
+    <div class="card">
+      <div class="title-sm" style="margin-bottom:8px;">📈 累计</div>
+      <div style="font-size:14px;line-height:2;color:#555;">
+        🔥 连续打卡 <b>${streak}</b> 天 ｜ 学习过 <b>${activeDays}</b> 天<br>
+        ⏱️ 总学习时长 <b>${fmtMs(allMs)}</b><br>
+        🎯 总答题 <b>${allTotal}</b> 道 ｜ 平均正确率 <b>${allAcc!==null?allAcc+'%':'—'}</b><br>
+        ⭐ 总星星 <b>${stars}</b>
+      </div>
+    </div>`));
+
+  // —— 错词本 ——
+  const wrongList = Object.values(WRONG).sort((a,b)=>b.count-a.count);
+  const wrongCard = $(`<div class="card"><div class="title-sm" style="margin-bottom:10px;">📕 错词本（点词可听发音）</div></div>`);
+  if(!wrongList.length){
+    wrongCard.appendChild($(`<div style="color:#2b8a3e;padding:6px 0;">🎉 太棒了，目前没有需要复习的错词！</div>`));
+  }else{
+    const wrap=$(`<div></div>`);
+    wrongList.forEach(w=>{
+      const row=$(`<div class="unit-row" style="cursor:pointer;"><div><div class="n">${w.pic} ${w.en}</div><div class="c">${w.cn}</div></div><div style="color:#c92a52;font-weight:800;">错${w.count}次 🔊</div></div>`);
+      row.onclick=()=>speak(w.en);
+      wrap.appendChild(row);
+    });
+    wrongCard.appendChild(wrap);
+  }
+  app.appendChild(wrongCard);
+
+  // —— 文字总结 ——
+  let tips=[];
+  if(todayMs===0) tips.push('今天还没学习，建议先玩 10 分钟「学单词」热热身。');
+  else tips.push(`今天已学习 ${fmtMs(todayMs)}，做了 ${tB.total||0} 道题${todayAcc!==null?('，正确率 '+todayAcc+'%'):''}。`);
+  if(todayAcc!==null){
+    if(todayAcc>=90) tips.push('正确率很高，可以挑战新单元或更难的「拼一拼」。');
+    else if(todayAcc>=60) tips.push('掌握得不错，重点复习一下错词本里的词。');
+    else tips.push('错得有点多，建议放慢节奏，先用「学单词」+「听力」把这组词过熟。');
+  }
+  if(wrongList.length){
+    tips.push('最需要复习：'+wrongList.slice(0,5).map(w=>w.en+'('+w.cn+')').join('、')+'。');
+    tips.push('小窍门：在「闯关测验」里答对错词，它会自动从错词本里减少哦。');
+  }
+  app.appendChild($(`<div class="card" style="background:linear-gradient(135deg,#fff,#f3f0ff);">
+    <div class="title-sm" style="margin-bottom:8px;">📝 今日总结</div>
+    <div style="font-size:14px;line-height:1.9;color:#444;">${tips.map(t=>'· '+t).join('<br>')}</div></div>`));
+
+  // —— 清空按钮 ——
+  app.appendChild($(`<button class="btn btn-ghost" id="clr" style="color:#c92a52;">🗑️ 清空所有学习记录</button>`));
+  app.querySelector('#clr').onclick=()=>{
+    if(confirm('确定清空所有学习记录和错词本吗？此操作不可恢复。')){
+      LOG={}; WRONG={}; saveLog(); reportPage();
+    }
+  };
+}
+
+/* ============================================================
    首页
    ============================================================ */
 function home(){
+  endActivity();   // 结算上一个模块的学习时长
   footHint.innerHTML = '提示：第一次点发音可能没声音，再点一次即可（浏览器需要一次互动才允许播放）。';
   app.innerHTML='';
   // ——学习地图：打卡 + 等级——
@@ -453,8 +581,13 @@ function home(){
         <div style="font-size:40px;">${li.emoji}</div>
       </div>
       <div class="bar" style="margin:12px 0 4px;"><i style="width:${li.pct}%;background:linear-gradient(90deg,#ff8c42,#ffc078);"></i></div>
-      <div style="font-size:12px;color:#8a8a8a;">${li.next!==null?('再得 '+(li.next-stars)+' ⭐ 升下一级'):'已满级，太厉害啦！👑'}</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <span style="font-size:12px;color:#8a8a8a;">${li.next!==null?('再得 '+(li.next-stars)+' ⭐ 升下一级'):'已满级，太厉害啦！👑'}</span>
+        <span style="font-size:13px;font-weight:700;color:#f4742a;">📊 学习报告 ›</span>
+      </div>
     </div>`);
+  banner.style.cursor='pointer';
+  banner.onclick=reportPage;
   app.appendChild(banner);
   app.appendChild($(`
     <div class="card">
@@ -491,7 +624,7 @@ function chooseUnit(mode){
     const row=$(`<div class="unit-row"><div><div class="n">${u.words[0].pic} ${u.cn}</div><div class="c">${u.name} · ${u.words.length}个词</div></div><div>›</div></div>`);
     row.onclick=()=>{
       if(mode==='learn') startLearn(u);
-      else if(mode==='listen') startQuiz(u.words, u.cn+' · 听力', {audio:true});
+      else if(mode==='listen') startQuiz(u.words, u.cn+' · 听力', {audio:true, track:'listen'});
       else if(mode==='spell') startSpell(u);
       else if(mode==='match') startMatch(u);
       else if(mode==='whack') startWhack(u);
@@ -505,6 +638,7 @@ function chooseUnit(mode){
    模式1：学单词（翻卡）
    ============================================================ */
 function startLearn(unit){
+  startActivity('learn');
   let i=0; const ws=unit.words;
   function render(){
     const w=ws[i];
@@ -573,6 +707,7 @@ function startQuiz(pool, title, opts={}){
   const TYPES = ['pic2en','cn2en','en2cn','audio'];
   const fixedType = opts.audio ? 'audio' : (opts.qtype||'pic2en');
   const mix = !!opts.mix;     // 混合题：每题随机一种题型
+  startActivity(opts.track||'quiz');
   const qs = shuffle(pool).slice(0, Math.min(10, pool.length));
   let idx=0, correct=0;
   function render(){
@@ -610,9 +745,9 @@ function startQuiz(pool, title, opts={}){
         if(b.dataset.done) return;
         grid.querySelectorAll('.opt').forEach(x=>x.dataset.done='1');
         if(right){
-          b.classList.add('right'); correct++; addStar(1); sfxRight(); comboHit(); toast('⭐'); speak(w.en);
+          b.classList.add('right'); correct++; addStar(1); sfxRight(); comboHit(); toast('⭐'); speak(w.en); answeredRight(w);
         }else{
-          b.classList.add('wrong'); sfxWrong(); comboReset(); toast('🤔');
+          b.classList.add('wrong'); sfxWrong(); comboReset(); toast('🤔'); logWrong(w);
           const want = ansCn ? w.cn : w.en;
           grid.querySelectorAll('.opt').forEach(x=>{ if(x.textContent===want) x.classList.add('right'); });
           speak(w.en);
@@ -626,6 +761,7 @@ function startQuiz(pool, title, opts={}){
     if(qt==='audio'){ app.querySelector('#play').onclick=()=>speak(w.en); setTimeout(()=>speak(w.en),300); }
   }
   function finish(){
+    logResult(correct, qs.length); endActivity();
     app.innerHTML='';
     const pass = correct>=Math.ceil(qs.length*0.6);
     app.appendChild($(`<div class="card done"><div class="big">${pass?'🏆':'💪'}</div>
@@ -644,6 +780,7 @@ function startQuiz(pool, title, opts={}){
    模式3：拼一拼（看中文+发音，点字母拼单词）
    ============================================================ */
 function startSpell(unit){
+  startActivity('spell');
   const ws = shuffle(unit.words).filter(w=>w.en.length<=8); // 三年级别太长
   let idx=0, correct=0;
   function render(){
@@ -651,7 +788,7 @@ function startSpell(unit){
     const target=w.en.toLowerCase();
     const letters=target.replace(/[^a-z]/g,''); // 拼写忽略空格/连字符
     const display=target;                        // 显示时保留原样
-    let filled=[];
+    let filled=[], missedThis=false;
     app.innerHTML='';
     app.appendChild($(`<div class="topbar"><button class="back">← 返回</button><div class="title-sm">${unit.cn} · 拼一拼 (${idx+1}/${ws.length})</div></div>`));
     app.querySelector('.back').onclick=()=>chooseUnit('spell');
@@ -692,9 +829,11 @@ function startSpell(unit){
       const got=filled.join('');
       if(got===letters){
         correct++; addStar(2); sfxRight(); comboHit(); toast('⭐'); speak(w.en);
+        if(missedThis) logWrong(w); else answeredRight(w);
         slots.querySelectorAll('.slot').forEach(s=>s.style.color='#2b8a3e');
         setTimeout(()=>{ if(idx<ws.length-1){idx++;render();} else finish(); }, 1100);
       }else{
+        missedThis=true;
         sfxWrong(); comboReset(); toast('🙈'); slots.querySelectorAll('.slot').forEach(s=>s.style.borderColor='#ff6b9d');
         setTimeout(()=>{ filled=[]; drawSlots(); keys.querySelectorAll('.key').forEach(x=>x.disabled=false);
           slots.querySelectorAll('.slot').forEach(s=>s.style.borderColor=''); }, 900);
@@ -703,6 +842,7 @@ function startSpell(unit){
     speak(w.en);
   }
   function finish(){
+    logResult(correct, ws.length); endActivity();
     app.innerHTML='';
     app.appendChild($(`<div class="card done"><div class="big">🎯</div><div class="msg">拼写完成！答对 ${correct}/${ws.length}</div></div>`));
     app.appendChild($(`<button class="btn btn-purple" id="again">再拼一次</button>`));
@@ -719,6 +859,7 @@ function startSpell(unit){
    新玩法1：记忆翻牌配对（图 ↔ 单词）
    ============================================================ */
 function startMatch(unit){
+  startActivity('match');
   const picked = shuffle(unit.words).slice(0, Math.min(6, unit.words.length));
   // 每个词生成两张牌：一张 emoji 图、一张英文词
   let cards = [];
@@ -761,7 +902,7 @@ function startMatch(unit){
   app.appendChild(wrap);
   app.appendChild($(`<div class="hint">翻开两张牌，把「图片」和「英文单词」配成一对 🎴</div>`));
   function finish(){
-    sfxWin();
+    endActivity(); sfxWin();
     app.innerHTML='';
     app.appendChild($(`<div class="card done"><div class="big">🎴✨</div><div class="msg">全部配对成功！+${picked.length}⭐</div></div>`));
     app.appendChild($(`<button class="btn btn-blue" id="again">再玩一次</button>`));
@@ -777,6 +918,7 @@ function startMatch(unit){
    新玩法2：听音打地鼠（听发音 → 拍对应的地鼠）
    ============================================================ */
 function startWhack(unit){
+  startActivity('whack');
   const ws = unit.words;
   let score=0, timeLeft=30, target=null, timer=null, popTimer=null;
   comboReset();
@@ -838,7 +980,7 @@ function startWhack(unit){
   }
   function stop(){ clearInterval(timer); clearTimeout(popTimer); speechSynthesis.cancel&&speechSynthesis.cancel(); }
   function finish(){
-    stop(); sfxWin();
+    stop(); endActivity(); sfxWin();
     app.innerHTML='';
     app.appendChild($(`<div class="card done"><div class="big">🔨🎉</div><div class="msg">时间到！得分 ${score}<br>抓到 ${score/10} 只地鼠</div></div>`));
     app.appendChild($(`<button class="btn btn-green" id="again">再来一局</button>`));
