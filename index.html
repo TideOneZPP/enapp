@@ -431,6 +431,30 @@ function speak(text){
   speechSynthesis.speak(u);
 }
 
+/* ===== 导师层 Tutor Layer：时长边界 / 过程鼓励 / 复习优先 / 错因解释 ===== */
+let _sessionStart=Date.now(), _restNudged=false;
+function resetSession(){ _sessionStart=Date.now(); _restNudged=false; }
+function sessionShouldStop(){
+  const min=(Date.now()-_sessionStart)/60000;
+  if(min>=30) return 'force';
+  if(min>=20 && !_restNudged){_restNudged=true; return 'rest';}
+  return null;
+}
+const PRAISE_DEFAULT=['⭐','👏','🎯','👍','💯','✨'];
+const PRAISE_FAST=['⚡ 太快了!','🚀 闪电速度!','💨 反应真快!'];
+const PRAISE_REVIEW=['✨ 错词改对了!','🌟 你进步了!','👍 抓到难点了!'];
+const PRAISE_COMBO=['🔥 连击','💪 越来越棒','🌟 状态好极了'];
+function praise(ctx,n){
+  if(ctx==='combo'&&n>=3) return PRAISE_COMBO[Math.floor(Math.random()*PRAISE_COMBO.length)]+' x'+n+'!';
+  if(ctx==='fast') return PRAISE_FAST[Math.floor(Math.random()*PRAISE_FAST.length)];
+  if(ctx==='review') return PRAISE_REVIEW[Math.floor(Math.random()*PRAISE_REVIEW.length)];
+  return PRAISE_DEFAULT[Math.floor(Math.random()*PRAISE_DEFAULT.length)];
+}
+function reviewPool(count){
+  const n=Math.min(Math.floor(count*0.3), Object.keys(WRONG).length);
+  return shuffle(Object.values(WRONG)).slice(0,n);
+}
+
 /* ===== 跟读评分：浏览器语音识别（webkitSpeechRecognition）===== */
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition || null;
 function canASR(){ return !!SR; }
@@ -797,15 +821,23 @@ function startLearn(unit){
    opts.audio=true 时为听力题：放音 + 选中文意思反向也可
    ============================================================ */
 function startQuiz(pool, title, opts={}){
-  // 题型（都必须经过英文）：pic2en 看图选英文 / cn2en 中译英 / en2cn 英译中 / audio 听音选词
   const TYPES = ['pic2en','cn2en','en2cn','audio'];
   const fixedType = opts.audio ? 'audio' : (opts.qtype||'pic2en');
-  const mix = !!opts.mix;     // 混合题：每题随机一种题型
-  startActivity(opts.track||'quiz');
-  const qs = shuffle(pool).slice(0, Math.min(10, pool.length));
-  let idx=0, correct=0;
+  const mix = !!opts.mix;
+  startActivity(opts.track||'quiz'); resetSession();
+  // 复习优先：30% 来自错词本
+  const reviews = reviewPool(10);
+  const fresh = shuffle(pool).slice(0, 10-reviews.length).map(w=>({...w, _fresh:true}));
+  const reviewMarked = reviews.map(w=>({en:w.en,cn:w.cn,pic:w.pic, _isReview:true}));
+  const qs = shuffle([...reviewMarked, ...fresh]).slice(0,10);
+  let idx=0, correct=0, _qStart=0;
   function render(){
-    const w=qs[idx];
+    // 时长边界
+    const st=sessionShouldStop();
+    if(st==='force'){ logResult(correct, idx); endActivity(); app.innerHTML=''; app.appendChild($(`<div class="card done"><div class="big">🎉</div><div class="msg">今天学得真够多了！</div></div>`)); app.appendChild($(`<button class="btn btn-primary" onclick="home()">回首页</button>`)); return; }
+    if(st==='rest') toast('☕ 学了20分钟，休息一下',2500);
+
+    const w=qs[idx]; _qStart=Date.now();
     let qt = mix ? TYPES[Math.floor(Math.random()*TYPES.length)] : fixedType;
     // 抽象词不出「看图」题，改走文字/听音题型，避免“看图选不出来”的无意义题
     if(qt==='pic2en' && !isPic(w)) qt = ['cn2en','en2cn','audio'][Math.floor(Math.random()*3)];
@@ -815,7 +847,7 @@ function startQuiz(pool, title, opts={}){
     const others = shuffle(allWords().filter(x=>x[key]!==w[key])).filter((x,i,a)=>a.findIndex(y=>y[key]===x[key])===i).slice(0,3);
     const options = shuffle([w, ...others]);
     app.innerHTML='';
-    app.appendChild($(`<div class="topbar"><button class="back">← 返回</button><div class="title-sm">${title} (${idx+1}/${qs.length})</div></div>`));
+    app.appendChild($(`<div class="topbar"><button class="back">← 返回</button><div class="title-sm">${title} (${idx+1}/${qs.length})${w._isReview?' <span style="color:#f4742a;font-size:12px;">📕复习</span>':''}</div></div>`));
     app.querySelector('.back').onclick=home;
 
     let promptHtml;
@@ -839,9 +871,15 @@ function startQuiz(pool, title, opts={}){
         if(b.dataset.done) return;
         grid.querySelectorAll('.opt').forEach(x=>x.dataset.done='1');
         if(right){
-          b.classList.add('right'); correct++; addStar(1); sfxRight(); comboHit(); toast('⭐'); speak(w.en); answeredRight(w);
+          const elapsed=(Date.now()-_qStart)/1000;
+          b.classList.add('right'); correct++; addStar(1); sfxRight(); comboHit();
+          const msg = w._isReview?praise('review'): elapsed<3?praise('fast'): combo>=3?praise('combo',combo):praise('default');
+          toast(msg,1100); speak(w.en); answeredRight(w);
         }else{
           b.classList.add('wrong'); sfxWrong(); comboReset(); toast('🤔'); logWrong(w);
+          // 错因解释
+          const ex = $(`<div style="background:#fff3e6;border-radius:12px;padding:12px;margin-top:12px;font-size:14px;color:#c9450c;line-height:1.6;">💡 「${w.en}」意思是「${w.cn}」</div>`);
+          card.appendChild(ex);
           const want = ansCn ? w.cn : w.en;
           grid.querySelectorAll('.opt').forEach(x=>{ if(x.textContent===want) x.classList.add('right'); });
           speak(w.en);
