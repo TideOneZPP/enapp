@@ -343,14 +343,29 @@ function endActivity(){
 document.addEventListener('visibilitychange', ()=>{ if(document.hidden) endActivity(); });
 window.addEventListener('pagehide', endActivity);
 
-// —— 正确率 & 错词本 ——
+// —— 正确率 & 错词本（艾宾浩斯遗忘曲线 + 错因归因）——
 function logResult(correct, total){ const b=dayBucket(); b.correct+=correct; b.total+=total; saveLog(); }
-function logWrong(w){
+const FORGET_INTERVALS=[1,2,4,7,15,30]; // 天：1→2→4→7→15→30
+function logWrong(w, errorType){
   if(!w||!w.en) return;
-  const k=w.en; if(!WRONG[k]) WRONG[k]={en:w.en,cn:w.cn,pic:w.pic,count:0,last:''};
-  WRONG[k].count++; WRONG[k].last=todayStr(); saveLog();
+  const k=w.en; if(!WRONG[k]) WRONG[k]={en:w.en,cn:w.cn,pic:w.pic,count:0,last:'',stage:0,due:0};
+  WRONG[k].count++; WRONG[k].last=todayStr();
+  WRONG[k].stage=0;            // 答错回 stage 0
+  WRONG[k].due=Date.now();      // 立即可复习
+  if(errorType) WRONG[k].errorType=errorType;
+  saveLog();
 }
-function answeredRight(w){ if(w&&w.en&&WRONG[w.en]){ WRONG[w.en].count=Math.max(0,WRONG[w.en].count-1); if(WRONG[w.en].count===0) delete WRONG[w.en]; saveLog(); } }
+function answeredRight(w){
+  if(!w||!w.en||!WRONG[w.en]) return;
+  const e=WRONG[w.en];
+  e.count=Math.max(0,e.count-1);
+  e.stage=(e.stage||0)+1;
+  const d=FORGET_INTERVALS[Math.min(e.stage, FORGET_INTERVALS.length-1)];
+  e.due=Date.now()+d*86400*1000;
+  if(e.count===0 && e.stage>=5) delete WRONG[w.en]; // 间隔答对 5+ 次彻底毕业
+  saveLog();
+}
+function dueWrongList(){ const now=Date.now(); return Object.values(WRONG).filter(w=>(w.due||0)<=now); }
 function fmtMs(ms){ const s=Math.round(ms/1000); if(s<60) return s+'秒'; const m=Math.floor(s/60); return m+'分'+(s%60?(s%60)+'秒':''); }
 
 const $ = (h)=>{ const d=document.createElement('div'); d.innerHTML=h.trim(); return d.firstChild; };
@@ -431,15 +446,31 @@ function speak(text){
   speechSynthesis.speak(u);
 }
 
-/* ===== 导师层 Tutor Layer：时长边界 / 过程鼓励 / 复习优先 / 错因解释 ===== */
+/* ===== 导师层 Tutor Layer：番茄钟 15min / 时长边界 / 过程鼓励 / 复习优先 ===== */
 let _sessionStart=Date.now(), _restNudged=false;
-function resetSession(){ _sessionStart=Date.now(); _restNudged=false; }
+function resetSession(){ _sessionStart=Date.now(); _restNudged=false; pomoStart(); }
 function sessionShouldStop(){
   const min=(Date.now()-_sessionStart)/60000;
-  if(min>=30) return 'force';
-  if(min>=20 && !_restNudged){_restNudged=true; return 'rest';}
+  if(min>=25) return 'force';                 // 番茄钟 25min 强制结束
+  if(min>=15 && !_restNudged){_restNudged=true; return 'rest';}  // 15min 提示休息
   return null;
 }
+// —— 番茄钟 UI（顶部小条）——
+let _pomoTimer=null;
+function pomoStart(){
+  let el=document.getElementById('pomoBar');
+  if(!el){ el=$(`<div id="pomoBar" style="position:fixed;top:6px;left:50%;transform:translateX(-50%);background:#fff;border-radius:999px;padding:4px 12px;box-shadow:var(--shadow);font-size:12px;font-weight:700;color:#8a8a8a;z-index:30;"></div>`); document.body.appendChild(el); }
+  el.style.display='block';
+  if(_pomoTimer) clearInterval(_pomoTimer);
+  const tick=()=>{
+    const m=Math.floor((Date.now()-_sessionStart)/60000);
+    el.textContent=`🍅 ${m}/15 min`;
+    if(m>=15){ el.style.background='#fff3e6'; el.style.color='#c9450c'; }
+    if(m>=25){ el.style.background='#ffe9ec'; el.style.color='#c92a52'; el.textContent=`⏰ 该结束了 (${m}min)`; }
+  };
+  tick(); _pomoTimer=setInterval(tick, 5000);
+}
+function pomoStop(){ if(_pomoTimer){clearInterval(_pomoTimer);_pomoTimer=null;} const el=document.getElementById('pomoBar'); if(el) el.style.display='none'; }
 const PRAISE_DEFAULT=['⭐','👏','🎯','👍','💯','✨'];
 const PRAISE_FAST=['⚡ 太快了!','🚀 闪电速度!','💨 反应真快!'];
 const PRAISE_REVIEW=['✨ 错词改对了!','🌟 你进步了!','👍 抓到难点了!'];
@@ -451,8 +482,10 @@ function praise(ctx,n){
   return PRAISE_DEFAULT[Math.floor(Math.random()*PRAISE_DEFAULT.length)];
 }
 function reviewPool(count){
-  const n=Math.min(Math.floor(count*0.3), Object.keys(WRONG).length);
-  return shuffle(Object.values(WRONG)).slice(0,n);
+  // 优先取"到期"错词（艾宾浩斯节点已到）
+  const due=dueWrongList();
+  const n=Math.min(Math.floor(count*0.3), due.length);
+  return shuffle(due).slice(0,n);
 }
 
 /* ===== 跟读评分：浏览器语音识别（webkitSpeechRecognition）===== */
@@ -684,6 +717,7 @@ function reportPage(){
    ============================================================ */
 function home(){
   endActivity();   // 结算上一个模块的学习时长
+  pomoStop();
   footHint.innerHTML = '提示：第一次点发音可能没声音，再点一次即可（浏览器需要一次互动才允许播放）。';
   app.innerHTML='';
   // ——学习地图：打卡 + 等级——
@@ -723,12 +757,150 @@ function home(){
           <span class="emoji">🃏</span><div class="t">翻牌配对</div><div class="d">图↔词 · 练记忆</div></div>
         <div class="mode" style="background:linear-gradient(135deg,#51cf66,#94d82d)" data-go="whack">
           <span class="emoji">🔨</span><div class="t">打地鼠</div><div class="d">听音拍词 · 限时</div></div>
+        <div class="mode" style="background:linear-gradient(135deg,#ff6b9d,#ff8c42)" data-go="dialog">
+          <span class="emoji">💬</span><div class="t">情景对话</div><div class="d">听对话 · 选答句</div></div>
+        <div class="mode btn-ghost" style="color:#c92a52;" data-go="review">
+          <span class="emoji">📕</span><div class="t">错词专项</div><div class="d">优先到期错词</div></div>
       </div>
     </div>
   `));
   app.querySelectorAll('[data-go]').forEach(el=>{
-    el.onclick=()=>{ const m=el.dataset.go; if(m==='quiz'){ startQuiz(allWords(),'闯关测验',{mix:true}); } else { chooseUnit(m); } };
+    el.onclick=()=>{ const m=el.dataset.go;
+      if(m==='quiz'){ startQuiz(allWords(),'闯关测验',{mix:true}); }
+      else if(m==='dialog'){ startDialog(); }
+      else if(m==='review'){ startReview(); }
+      else { chooseUnit(m); }
+    };
   });
+}
+
+/* ============================================================
+   模式7：情景对话（听 → 选合适回应）
+   8 段生活对话，三年级语境，巩固问候/教室/家庭/购物等
+   ============================================================ */
+const DIALOGS = [
+  {t:'打招呼 Greetings', s:'🏫', lines:[
+    {who:'A',en:'Good morning, Mike!',cn:'早上好，麦克！'},
+    {who:'B',en:'____',cn:'____', opts:['Good morning, Lily!','Good night.','Goodbye!','Thank you.'], a:0, why:'对方说早上好，要用 "Good morning" 回应'},
+    {who:'A',en:'How are you?',cn:'你好吗？'},
+    {who:'B',en:'____',cn:'____', opts:['I am fine, thank you.','It is a cat.','I am six.','Yes, I do.'], a:0, why:'问 How are you 要用 "I am fine" 回答'},
+  ]},
+  {t:'自我介绍 Introducing', s:'🙋', lines:[
+    {who:'A',en:"What's your name?",cn:'你叫什么名字？'},
+    {who:'B',en:'____',cn:'____', opts:["I'm Tom.",'I am eight.','I like apples.','Yes.'], a:0, why:'问名字要回答 "I am ..."'},
+    {who:'A',en:'How old are you?',cn:'你几岁了？'},
+    {who:'B',en:'____',cn:'____', opts:['I am eight.','I am Tom.','I am a boy.','I am fine.'], a:0, why:'问年龄回答数字 "I am eight"'},
+  ]},
+  {t:'家庭成员 Family', s:'👨‍👩‍👧‍👦', lines:[
+    {who:'A',en:'This is my father.',cn:'这是我爸爸。'},
+    {who:'B',en:'____',cn:'____', opts:['Nice to meet you!','Goodbye!','Sorry.','No.'], a:0, why:'见面打招呼用 "Nice to meet you"'},
+    {who:'A',en:'Is she your sister?',cn:'她是你姐姐吗？'},
+    {who:'B',en:'____',cn:'____', opts:['Yes, she is.','It is a dog.','I am a girl.','Thank you.'], a:0, why:'Is she 用 "Yes, she is" 回答'},
+  ]},
+  {t:'颜色 Colours', s:'🎨', lines:[
+    {who:'A',en:'What colour is it?',cn:'这是什么颜色？'},
+    {who:'B',en:'____',cn:'____ (指着一个🍎)', opts:["It's red.",'I am five.','Yes, I do.','Goodbye!'], a:0, why:'问颜色用 "It is + 颜色"'},
+    {who:'A',en:'Do you like blue?',cn:'你喜欢蓝色吗？'},
+    {who:'B',en:'____',cn:'____', opts:['Yes, I do.','I am Tom.','It is a bag.','Thank you.'], a:0, why:'Do you ... 一般疑问句用 "Yes, I do" 回答'},
+  ]},
+  {t:'课堂 In Class', s:'📚', lines:[
+    {who:'T(老师)',en:'Open your book, please.',cn:'请打开书。'},
+    {who:'S(学生)',en:'____',cn:'____', opts:['OK.','I am sorry.','Goodbye.','Yes, she is.'], a:0, why:'老师指令，学生回答 "OK"'},
+    {who:'T',en:'Come in, please.',cn:'请进。'},
+    {who:'S',en:'____',cn:'____', opts:['Thank you.','I am eight.','It is red.','No, thanks.'], a:0, why:'被允许进入要说 "Thank you"'},
+  ]},
+  {t:'食物 Food', s:'🍰', lines:[
+    {who:'A',en:'Would you like a cake?',cn:'你想要一块蛋糕吗？'},
+    {who:'B',en:'____',cn:'____', opts:['Yes, please.','I am fine.','Goodbye.','I am eight.'], a:0, why:'Would you like 礼貌邀请，接受用 "Yes, please"'},
+    {who:'A',en:'Here you are.',cn:'给你。'},
+    {who:'B',en:'____',cn:'____', opts:['Thank you.','Sorry.','I am sorry.','Goodbye!'], a:0, why:'接过东西要说 "Thank you"'},
+  ]},
+  {t:'时间 Time', s:'⏰', lines:[
+    {who:'A',en:'What time is it?',cn:'几点了？'},
+    {who:'B',en:'____',cn:"____ (钟显示 7点)", opts:["It's seven o'clock.","I am seven.","Yes, it is.","Goodbye!"], a:0, why:"问时间用 It is X o'clock"},
+    {who:'A',en:"It's time for lunch.",cn:'到吃午饭的时间了。'},
+    {who:'B',en:'____',cn:'____', opts:['OK.','I am Tom.','It is red.','Sorry.'], a:0, why:'对提议表示同意可用 "OK"'},
+  ]},
+  {t:'告别 Saying bye', s:'👋', lines:[
+    {who:'A',en:'See you tomorrow!',cn:'明天见！'},
+    {who:'B',en:'____',cn:'____', opts:['See you!','Hello!','I am fine.','Thank you.'], a:0, why:'See you 是告别用语，回应 "See you"'},
+    {who:'A',en:'Good night, Mum.',cn:'晚安，妈妈。'},
+    {who:'B',en:'____',cn:'____', opts:['Good night, dear.','Good morning!','How are you?','Yes, I do.'], a:0, why:'晚安互回 "Good night"'},
+  ]},
+];
+
+function startDialog(){
+  app.innerHTML='';
+  app.appendChild($(`<div class="topbar"><button class="back">← 返回</button><div class="title-sm">💬 情景对话 · 选一个场景</div></div>`));
+  app.querySelector('.back').onclick=home;
+  DIALOGS.forEach((d,i)=>{
+    const row=$(`<div class="unit-row"><div><div class="n">${d.s} ${d.t}</div><div class="c">${d.lines.filter(l=>l.opts).length} 题</div></div><div>›</div></div>`);
+    row.onclick=()=>dialogPlay(i);
+    app.appendChild(row);
+  });
+}
+function dialogPlay(idx){
+  startActivity('quiz'); resetSession();
+  const d=DIALOGS[idx];
+  const blanks = d.lines.map((l,i)=>l.opts?i:-1).filter(i=>i>=0);
+  let bi=0, correct=0;
+  function render(){
+    const targetIdx = blanks[bi];
+    app.innerHTML='';
+    app.appendChild($(`<div class="topbar"><button class="back">← 返回</button><div class="title-sm">${d.s} ${d.t} (${bi+1}/${blanks.length})</div></div>`));
+    app.querySelector('.back').onclick=()=>{endActivity();startDialog();};
+    // 显示已展开的对话历史 + 当前问号位
+    const escapeHtml=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    const histHtml = d.lines.map((l,i)=>{
+      if(i>targetIdx) return '';
+      if(i===targetIdx) return `<div style="background:#fff3cd;border-radius:10px;padding:10px;margin:6px 0;"><div style="font-size:12px;color:#8a8a8a;">${escapeHtml(l.who)}:</div><div style="font-size:18px;font-weight:700;color:#c9450c;">❓ 请选合适的回应</div><div style="font-size:13px;color:#555;margin-top:4px;">${escapeHtml(l.cn)}</div></div>`;
+      const playable = l.en && !l.opts;
+      return `<div class="dlgLine" data-en="${escapeHtml(l.en)}" style="background:#f8f9fa;border-radius:10px;padding:10px;margin:6px 0;${playable?'cursor:pointer;':''}"><div style="font-size:12px;color:#8a8a8a;">${escapeHtml(l.who)}${playable?' 🔊':''}:</div><div style="font-size:17px;">${escapeHtml(l.en)}</div><div style="font-size:13px;color:#888;">${escapeHtml(l.cn)}</div></div>`;
+    }).join('');
+    const card=$(`<div class="card">${histHtml}</div>`);
+    const grid=$(`<div style="display:grid;gap:10px;margin-top:12px;"></div>`);
+    const tgt = d.lines[targetIdx];
+    tgt.opts.forEach((opt,oi)=>{
+      const b=$(`<div class="opt" style="text-align:left;font-size:17px;">${'ABCD'[oi]}. ${opt}</div>`);
+      b.onclick=()=>{
+        if(b.dataset.done)return;
+        grid.querySelectorAll('.opt').forEach(x=>x.dataset.done='1');
+        if(oi===tgt.a){
+          b.classList.add('right'); correct++; addStar(2); sfxRight(); comboHit();
+          toast(praise(combo>=3?'combo':'default',combo),1100);
+          speak(tgt.opts[tgt.a]);
+        }else{
+          b.classList.add('wrong'); sfxWrong(); comboReset(); toast('🤔');
+          grid.querySelectorAll('.opt').forEach((x,i)=>{ if(i===tgt.a) x.classList.add('right'); });
+          card.appendChild($(`<div style="background:#fff3e6;border-radius:12px;padding:12px;margin-top:12px;font-size:14px;color:#c9450c;line-height:1.6;">💡 ${tgt.why}</div>`));
+          logWrong({en:'dlg:'+d.t+':'+targetIdx, cn:tgt.why, pic:d.s}, '对话搭配');
+          speak(tgt.opts[tgt.a]);
+        }
+        setTimeout(()=>{ if(bi<blanks.length-1){bi++;render();} else finish(); }, oi===tgt.a?1300:2600);
+      };
+      grid.appendChild(b);
+    });
+    card.appendChild(grid);
+    app.appendChild(card);
+    // 历史行点击朗读
+    card.querySelectorAll('.dlgLine').forEach(line=>{
+      line.addEventListener('click', ()=>{ const t=line.dataset.en; if(t) speak(t); });
+    });
+    // 自动朗读问句
+    const prev = d.lines[targetIdx-1];
+    if(prev && prev.en) setTimeout(()=>speak(prev.en),200);
+  }
+  function finish(){
+    logResult(correct, blanks.length); endActivity(); sfxWin();
+    app.innerHTML='';
+    app.appendChild($(`<div class="card done"><div class="big">${correct===blanks.length?'🏆':'💪'}</div><div class="msg">答对 ${correct}/${blanks.length}<br>获得 ${correct*2}⭐</div></div>`));
+    app.appendChild($(`<button class="btn btn-primary" id="next">💬 换个场景</button>`));
+    app.appendChild($(`<div style="height:12px"></div>`));
+    app.appendChild($(`<button class="btn btn-ghost" id="bk">回首页</button>`));
+    app.querySelector('#next').onclick=startDialog;
+    app.querySelector('#bk').onclick=home;
+  }
+  render();
 }
 
 /* 选单元 */
@@ -880,6 +1052,14 @@ function startQuiz(pool, title, opts={}){
           // 错因解释
           const ex = $(`<div style="background:#fff3e6;border-radius:12px;padding:12px;margin-top:12px;font-size:14px;color:#c9450c;line-height:1.6;">💡 「${w.en}」意思是「${w.cn}」</div>`);
           card.appendChild(ex);
+          // 错因归因 chips
+          const erChips = $(`<div style="margin-top:10px;display:flex;gap:6px;justify-content:center;flex-wrap:wrap;font-size:12px;align-items:center;color:#8a8a8a;"><span>错在：</span></div>`);
+          ['不认识词','听音错','拼写错','粗心'].forEach(t=>{
+            const cc=$(`<button style="background:#fff;border:1px solid #ffd8a8;color:#c9450c;border-radius:999px;padding:3px 10px;font-size:12px;cursor:pointer;">${t}</button>`);
+            cc.onclick=()=>{ if(WRONG[w.en]){WRONG[w.en].errorType=t; saveLog();} erChips.querySelectorAll('button').forEach(x=>x.style.background='#fff'); cc.style.background='#ffd8a8'; cc.style.fontWeight='800'; };
+            erChips.appendChild(cc);
+          });
+          card.appendChild(erChips);
           const want = ansCn ? w.cn : w.en;
           grid.querySelectorAll('.opt').forEach(x=>{ if(x.textContent===want) x.classList.add('right'); });
           speak(w.en);
