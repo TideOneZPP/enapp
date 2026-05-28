@@ -474,6 +474,37 @@ function startReview(){
   startQuiz(pool, '错词专项练习', {mix:true, track:'quiz'});
 }
 
+function parseDay(key){ const [y,m,d]=key.split('-').map(Number); return new Date(y,m-1,d); }
+
+/* 某一天的明细页 */
+function dayDetailPage(date){
+  app.innerHTML='';
+  app.appendChild($(`<div class="topbar"><button class="back">← 返回</button><div class="title-sm">📅 ${date} 明细</div></div>`));
+  app.querySelector('.back').onclick=reportPage;
+  const b = LOG[date] || {time:{},correct:0,total:0};
+  const totalMs = Object.values(b.time||{}).reduce((a,x)=>a+x,0);
+  const acc = b.total? Math.round(b.correct/b.total*100) : null;
+  const dow = '日一二三四五六'[parseDay(date).getDay()];
+  app.appendChild($(`
+    <div class="card">
+      <div style="display:flex;gap:10px;margin-bottom:12px;">
+        <div style="flex:1;background:#fff3e6;border-radius:14px;padding:12px;text-align:center;">
+          <div style="font-size:22px;font-weight:800;color:#f4742a;">${fmtMs(totalMs)}</div>
+          <div style="font-size:12px;color:#8a8a8a;">学习时长</div></div>
+        <div style="flex:1;background:#e7f5ff;border-radius:14px;padding:12px;text-align:center;">
+          <div style="font-size:22px;font-weight:800;color:#1971c2;">${acc!==null?acc+'%':'—'}</div>
+          <div style="font-size:12px;color:#8a8a8a;">正确率</div></div>
+        <div style="flex:1;background:#ebfbee;border-radius:14px;padding:12px;text-align:center;">
+          <div style="font-size:22px;font-weight:800;color:#2b8a3e;">${b.total||0}</div>
+          <div style="font-size:12px;color:#8a8a8a;">做题数</div></div>
+      </div>
+      <div style="font-size:14px;font-weight:700;margin-bottom:4px;">周${dow} · 各模块用时：</div>
+      ${Object.keys(b.time||{}).length
+        ? Object.keys(b.time).sort((x,y)=>b.time[y]-b.time[x]).map(m=>`<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px dashed #eee;"><span>${MODE_NAME[m]||m}</span><b>${fmtMs(b.time[m])}</b></div>`).join('')
+        : '<div style="color:#8a8a8a;padding:6px 0;">这天没有学习记录</div>'}
+    </div>`));
+}
+
 /* ============================================================
    学习报告（给家长看）：每日时长 / 正确率 / 错词本 / 总结
    ============================================================ */
@@ -550,6 +581,28 @@ function reportPage(){
       <div style="display:flex;align-items:flex-end;gap:6px;height:130px;padding-top:6px;">${bars}</div>
       <div style="font-size:13px;color:#8a8a8a;margin-top:8px;">最近 7 天里坚持学习了 <b style="color:#f4742a;">${learnedDays}</b> 天</div>
     </div>`));
+
+  // —— 历史记录（逐日，可点开看明细）——
+  const allDates = Object.keys(LOG).sort((a,b)=>parseDay(b)-parseDay(a));
+  const histCard = $(`<div class="card"><div class="title-sm" style="margin-bottom:10px;">🗂️ 历史记录（点某天看明细）</div></div>`);
+  if(!allDates.length){
+    histCard.appendChild($(`<div style="color:#8a8a8a;padding:6px 0;">还没有历史记录，学起来吧～</div>`));
+  }else{
+    const wrap=$(`<div></div>`);
+    allDates.forEach(dt=>{
+      const b=LOG[dt]; const ms=Object.values(b.time||{}).reduce((a,x)=>a+x,0);
+      const acc=b.total?Math.round(b.correct/b.total*100):null;
+      const dow='日一二三四五六'[parseDay(dt).getDay()];
+      const isToday = dt===today;
+      const row=$(`<div class="unit-row" style="cursor:pointer;">
+        <div><div class="n">${dt}${isToday?' <span style="color:#f4742a;font-size:12px;">今天</span>':''} <span style="color:#aaa;font-size:12px;">周${dow}</span></div>
+        <div class="c">⏱️ ${fmtMs(ms)} ｜ 🎯 ${acc!==null?acc+'%':'—'} ｜ ${b.total||0}题</div></div><div>›</div></div>`);
+      row.onclick=()=>dayDetailPage(dt);
+      wrap.appendChild(row);
+    });
+    histCard.appendChild(wrap);
+  }
+  app.appendChild(histCard);
 
   // —— 错词本 ——
   const wrongList = Object.values(WRONG).sort((a,b)=>b.count-a.count);
