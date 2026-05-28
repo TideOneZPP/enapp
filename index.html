@@ -644,13 +644,13 @@ function reportPage(){
   app.appendChild($(`<div style="text-align:center;margin-top:14px;">
     <button id="clr" style="background:none;border:none;color:#c9c9c9;font-size:12px;text-decoration:underline;cursor:pointer;padding:8px;">清空学习记录（需家长验证）</button></div>`));
   app.querySelector('#clr').onclick=()=>{
-    const a=11+Math.floor(Math.random()*78), b=11+Math.floor(Math.random()*78);  // 两位数加法
-    const ans=prompt('⚠️ 清空后所有学习记录和错词本将永久无法恢复！\n\n请家长输入答案确认：'+a+' + '+b+' = ?');
+    const PHRASE='确认清空';
+    const ans=prompt('⚠️ 清空后所有学习记录和错词本将永久无法恢复！\n\n如确定要清空，请在下方一字不差地输入这四个字：\n\n'+PHRASE);
     if(ans===null) return;                       // 取消
-    if(parseInt(ans,10)===a+b){
+    if((ans||'').trim()===PHRASE){
       LOG={}; WRONG={}; saveLog(); toast('🗑️ 已清空',1200); reportPage();
     }else{
-      alert('答案不正确，已取消清空（记录安全）。');
+      alert('输入不一致，已取消清空（记录安全）。');
     }
   };
 }
