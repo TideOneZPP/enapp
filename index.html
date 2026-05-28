@@ -448,11 +448,12 @@ function speak(text){
 
 /* ===== 导师层 Tutor Layer：番茄钟 15min / 时长边界 / 过程鼓励 / 复习优先 ===== */
 let _sessionStart=Date.now(), _restNudged=false;
-function resetSession(){ _sessionStart=Date.now(); _restNudged=false; pomoStart(); }
+function resetSession(){ _sessionStart=Date.now(); _restNudged=false; _force25Nudged=false; pomoStart(); }
+let _force25Nudged=false;
 function sessionShouldStop(){
   const min=(Date.now()-_sessionStart)/60000;
-  if(min>=25) return 'force';                 // 番茄钟 25min 强制结束
-  if(min>=15 && !_restNudged){_restNudged=true; return 'rest';}  // 15min 提示休息
+  if(min>=25 && !_force25Nudged){_force25Nudged=true; return 'overlong';} // 25min 软提示
+  if(min>=15 && !_restNudged){_restNudged=true; return 'rest';}            // 15min 提示
   return null;
 }
 // —— 番茄钟 UI（顶部小条）——
@@ -466,7 +467,7 @@ function pomoStart(){
     const m=Math.floor((Date.now()-_sessionStart)/60000);
     el.textContent=`🍅 ${m}/15 min`;
     if(m>=15){ el.style.background='#fff3e6'; el.style.color='#c9450c'; }
-    if(m>=25){ el.style.background='#ffe9ec'; el.style.color='#c92a52'; el.textContent=`⏰ 该结束了 (${m}min)`; }
+    if(m>=25){ el.style.background='#fff3e6'; el.style.color='#e8590c'; el.textContent=`💡 学了 ${m} min`; }
   };
   tick(); _pomoTimer=setInterval(tick, 5000);
 }
@@ -1006,8 +1007,8 @@ function startQuiz(pool, title, opts={}){
   function render(){
     // 时长边界
     const st=sessionShouldStop();
-    if(st==='force'){ logResult(correct, idx); endActivity(); app.innerHTML=''; app.appendChild($(`<div class="card done"><div class="big">🎉</div><div class="msg">今天学得真够多了！</div></div>`)); app.appendChild($(`<button class="btn btn-primary" onclick="home()">回首页</button>`)); return; }
-    if(st==='rest') toast('☕ 学了20分钟，休息一下',2500);
+    if(st==='overlong') toast('🎉 今天学得真够多了，记得护眼哦',3500);
+    if(st==='rest') toast('☕ 学了15分钟，休息一下',2500);
 
     const w=qs[idx]; _qStart=Date.now();
     let qt = mix ? TYPES[Math.floor(Math.random()*TYPES.length)] : fixedType;
