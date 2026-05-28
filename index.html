@@ -383,10 +383,16 @@ function showCombo(){
 function comboHit(){ combo++; showCombo(); return combo; }
 function comboReset(){ combo=0; showCombo(); }
 
+// 读音修正表：缩写/特殊拼写按正确发音来读（拼写≠读音）
+const SPEAK_FIX = {
+  "mr":"Mister", "mrs":"Missus", "ms":"Miz",
+  "t-shirt":"tee shirt", "o'clock":"oh clock"
+};
 function speak(text){
   if(!('speechSynthesis' in window)){ return; }
   speechSynthesis.cancel();
-  const u = new SpeechSynthesisUtterance(text);
+  const key = (text||'').toLowerCase().trim();
+  const u = new SpeechSynthesisUtterance(SPEAK_FIX[key] || text);
   u.lang='en-US'; u.rate=.8; u.pitch=1.05;   // 放慢、略高，孩子听得清
   if(enVoice) u.voice=enVoice;
   speechSynthesis.speak(u);
