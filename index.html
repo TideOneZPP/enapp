@@ -588,7 +588,7 @@ function startQuiz(pool, title, opts={}){
       promptHtml = `<div class="q-prompt">🔊 听一听，选出听到的单词</div>
         <div style="text-align:center;margin-bottom:14px;"><button class="speak" id="play">🔊 再听一次</button></div>`;
     }else if(qt==='pic2en'){
-      promptHtml = `<div class="q-pic">${w.pic}</div><div class="q-prompt">这个图是哪个<b>英文单词</b>？</div>`;
+      promptHtml = `<div class="q-pic">${w.pic}</div><div style="text-align:center;font-size:22px;font-weight:700;color:#8a8a8a;margin-top:-6px;margin-bottom:8px;">${w.cn}</div><div class="q-prompt">这个是哪个<b>英文单词</b>？</div>`;
     }else if(qt==='cn2en'){
       promptHtml = `<div class="q-pic" style="font-size:40px;">「${w.cn}」</div><div class="q-prompt">用<b>英文</b>怎么说？</div>`;
     }else{ // en2cn
@@ -729,7 +729,7 @@ function startMatch(unit){
   const wrap=$(`<div class="card"><div class="match-grid"></div></div>`);
   const grid=wrap.querySelector('.match-grid');
   cards.forEach((c,idx)=>{
-    const face = c.type==='pic' ? `<div class="face back">${c.w.pic}</div>`
+    const face = c.type==='pic' ? `<div class="face back" style="flex-direction:column;"><div style="font-size:34px;">${c.w.pic}</div><div style="font-size:13px;font-weight:700;color:#8a8a8a;">${c.w.cn}</div></div>`
                                 : `<div class="face back word">${c.w.en}</div>`;
     const el=$(`<div class="mcard" data-i="${idx}"><div class="inner"><div class="face front">❓</div>${face}</div></div>`);
     el.onclick=()=>{
@@ -812,7 +812,7 @@ function startWhack(unit){
     const idxs = shuffle([...Array(6).keys()]);
     const tIndex = pool.indexOf(target);
     setTimeout(()=>{
-      idxs.slice(0,4).concat(tIndex).forEach(i=>{ moles[i].textContent=moles[i]._w.pic; moles[i].classList.add('up'); });
+      idxs.slice(0,4).concat(tIndex).forEach(i=>{ moles[i].style.flexDirection='column'; moles[i].innerHTML=`<div style="font-size:34px;line-height:1;">${moles[i]._w.pic}</div><div style="font-size:12px;color:#fff;">${moles[i]._w.cn}</div>`; moles[i].classList.add('up'); });
       sfxPop();
     }, 120);
     speak(target.en);
