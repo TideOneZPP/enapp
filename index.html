@@ -289,9 +289,13 @@ setStars(stars);
 
 /* ===== 等级系统：按总星星升级 ===== */
 const LEVELS = [
-  {min:0,   t:'英语小芽',  e:'🌱'}, {min:20,  t:'勤奋小蜜蜂', e:'🐝'},
-  {min:50,  t:'识词小能手', e:'⭐'}, {min:100, t:'单词小达人', e:'🚀'},
-  {min:180, t:'英语小学霸', e:'🏅'}, {min:300, t:'词汇小王者', e:'👑'},
+  {min:0,    t:'倔强青铜 III', e:'🥉'}, {min:15,   t:'倔强青铜 II', e:'🥉'}, {min:35,   t:'倔强青铜 I', e:'🥉'},
+  {min:60,   t:'秩序白银 III', e:'🥈'}, {min:90,   t:'秩序白银 II', e:'🥈'}, {min:125,  t:'秩序白银 I', e:'🥈'},
+  {min:165,  t:'荣耀黄金 IV', e:'🥇'}, {min:210,  t:'荣耀黄金 III', e:'🥇'}, {min:260,  t:'荣耀黄金 II', e:'🥇'}, {min:315,  t:'荣耀黄金 I', e:'🥇'},
+  {min:375,  t:'尊贵铂金 IV', e:'🔷'}, {min:440,  t:'尊贵铂金 III', e:'🔷'}, {min:510,  t:'尊贵铂金 II', e:'🔷'}, {min:585,  t:'尊贵铂金 I', e:'🔷'},
+  {min:665,  t:'永恒钻石 V', e:'💎'}, {min:750,  t:'永恒钻石 IV', e:'💎'}, {min:840,  t:'永恒钻石 III', e:'💎'}, {min:935,  t:'永恒钻石 II', e:'💎'}, {min:1035, t:'永恒钻石 I', e:'💎'},
+  {min:1140, t:'至尊星耀 V', e:'🌟'}, {min:1250, t:'至尊星耀 IV', e:'🌟'}, {min:1365, t:'至尊星耀 III', e:'🌟'}, {min:1485, t:'至尊星耀 II', e:'🌟'}, {min:1610, t:'至尊星耀 I', e:'🌟'},
+  {min:1750, t:'最强王者', e:'👑'}, {min:2000, t:'荣耀王者', e:'🏆'},
 ];
 function levelInfo(){
   let lv=0; for(let i=0;i<LEVELS.length;i++){ if(stars>=LEVELS[i].min) lv=i; }
@@ -729,7 +733,7 @@ function home(){
     <div class="card" style="background:linear-gradient(135deg,#fff,#fff3e6);">
       <div style="display:flex;align-items:center;justify-content:space-between;">
         <div>
-          <div style="font-size:20px;font-weight:800;">${li.emoji} Lv.${li.lv} ${li.title}</div>
+          <div style="font-size:20px;font-weight:800;">${li.emoji} ${li.title}</div>
           <div style="font-size:13px;color:#8a8a8a;margin-top:4px;">🔥 连续打卡 <b>${streak}</b> 天 ｜ 累计 <b>${totalDays}</b> 天 ｜ ⭐ ${stars}</div>
         </div>
         <div style="font-size:40px;">${li.emoji}</div>
