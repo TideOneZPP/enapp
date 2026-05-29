@@ -311,12 +311,21 @@ function ymd(d){ return d.getFullYear()+'-'+(d.getMonth()+1)+'-'+d.getDate(); }
 function last7(){ const a=[]; for(let i=6;i>=0;i--){ const d=new Date(); d.setDate(d.getDate()-i); a.push({key:ymd(d), label:(d.getMonth()+1)+'/'+d.getDate(), dow:'日一二三四五六'[d.getDay()]}); } return a; }
 let streak = parseInt(localStorage.getItem('en_streak')||'0',10);
 let totalDays = parseInt(localStorage.getItem('en_days')||'0',10);
+let shield = parseInt(localStorage.getItem('en_shield')||'0',10);   // 补签护盾
+let _shieldUsed = false;
+function weekKey(){ const d=new Date(); const dow=(d.getDay()+6)%7; d.setDate(d.getDate()-dow); return ymd(d); } // 本周一
 function checkIn(){
   const last = localStorage.getItem('en_lastday');
   const today = todayStr();
   if(last===today) return false;          // 今天已打卡
+  if(localStorage.getItem('en_shield_week')!==weekKey()){   // 每周首次打卡发 1 张护盾，最多存 2 张
+    shield=Math.min(2,shield+1); localStorage.setItem('en_shield_week',weekKey()); localStorage.setItem('en_shield',shield);
+  }
   const y=new Date(); y.setDate(y.getDate()-1);
-  streak = (last===ymd(y)) ? streak+1 : 1; // 昨天来过→连续；否则重置
+  const y2=new Date(); y2.setDate(y2.getDate()-2);
+  if(last===ymd(y)){ streak=streak+1; }                                   // 昨天来过→连续
+  else if(last===ymd(y2) && shield>0){ shield--; localStorage.setItem('en_shield',shield); streak=streak+1; _shieldUsed=true; } // 漏1天→护盾补签
+  else { streak=1; }                                                      // 断更→重置
   totalDays++;
   localStorage.setItem('en_streak', streak);
   localStorage.setItem('en_days', totalDays);
@@ -487,8 +496,8 @@ function praise(ctx,n){
   return PRAISE_DEFAULT[Math.floor(Math.random()*PRAISE_DEFAULT.length)];
 }
 function reviewPool(count){
-  // 优先取"到期"错词（艾宾浩斯节点已到）
-  const due=dueWrongList();
+  // 优先取"到期"错词（艾宾浩斯节点已到）；对话(dlg:)/阅读(rd:)错题不是单词，排除出单词复习
+  const due=dueWrongList().filter(w=>!/^(dlg:|rd:)/.test(String(w.en)));
   const n=Math.min(Math.floor(count*0.3), due.length);
   return shuffle(due).slice(0,n);
 }
@@ -531,10 +540,107 @@ function recordSay(target, onResult){  // 录一次，回调(score, heard)
 
 /* 错词专项练习：只练错词本里的词，答对自动从错词本消化 */
 function startReview(){
-  // 对话错题(dlg:)只存了场景key+解释，没存正确英文句，不能当单词题考——过滤掉，避免乱码
-  const pool = Object.values(WRONG).filter(w=>!String(w.en).startsWith('dlg:')).map(w=>({en:w.en, cn:w.cn, pic:w.pic}));
+  // 对话错题(dlg:)、阅读错题(rd:)只存了 key+解释，不是单词，不能当单词题考——过滤掉，避免乱码
+  const pool = Object.values(WRONG).filter(w=>!/^(dlg:|rd:)/.test(String(w.en))).map(w=>({en:w.en, cn:w.cn, pic:w.pic}));
   if(pool.length<1){ toast('🎉 没有要复习的错词啦！',1500); return; }
   startQuiz(pool, '错词专项练习', {mix:true, track:'quiz'});
+}
+
+/* ============================================================
+   阅读理解：6 篇 Pre-A1 短文（译林版三年级已学词汇）× 3 题
+   ============================================================ */
+const READINGS = [
+  { t:'My Family', text:'Hello! I am Tom. This is my family. My father is tall. My mother is nice. I have a sister. Her name is Amy. We are happy.',
+    qs:[
+      {q:'What is the boy\'s name?', o:['Amy','Tom','Sam','Ben'], a:1, why:'第一句 I am Tom，男孩叫 Tom。'},
+      {q:'Who is Amy?', o:['His mother','His friend','His sister','His teacher'], a:2, why:'I have a sister. Her name is Amy.'},
+      {q:'The family is ___.', o:['sad','happy','busy','small'], a:1, why:'最后一句 We are happy。'},
+    ]},
+  { t:'My Cat', text:'I have a cat. Its name is Mimi. Mimi is white. She likes milk and fish. She can run and jump. I love my cat.',
+    qs:[
+      {q:'What colour is Mimi?', o:['black','yellow','white','brown'], a:2, why:'Mimi is white。'},
+      {q:'What does Mimi like?', o:['milk and fish','cake','rice','bread'], a:0, why:'She likes milk and fish。'},
+      {q:'Mimi can ___.', o:['swim','fly','run and jump','sing'], a:2, why:'She can run and jump。'},
+    ]},
+  { t:'At School', text:'This is my school. I have many friends. We read books and draw pictures. My teacher is Miss Li. She is kind. I like my school.',
+    qs:[
+      {q:'Who is the teacher?', o:['Miss Wang','Miss Li','Mr Chen','Amy'], a:1, why:'My teacher is Miss Li。'},
+      {q:'What do they do at school?', o:['sing and dance','run and jump','read books and draw','eat cakes'], a:2, why:'We read books and draw pictures。'},
+      {q:'Miss Li is ___.', o:['tall','kind','old','funny'], a:1, why:'She is kind。'},
+    ]},
+  { t:'My Breakfast', text:'It is morning. I am hungry. I eat an egg and a cake. I drink milk. The cake is sweet. I like my breakfast.',
+    qs:[
+      {q:'When is it?', o:['morning','noon','evening','night'], a:0, why:'It is morning。'},
+      {q:'What does the child drink?', o:['water','milk','juice','tea'], a:1, why:'I drink milk。'},
+      {q:'The cake is ___.', o:['big','hot','sweet','cold'], a:2, why:'The cake is sweet。'},
+    ]},
+  { t:'Balloons', text:'Look! I have many balloons. The red one is big. The blue one is small. The yellow one can fly high. I give the green one to my friend.',
+    qs:[
+      {q:'Which balloon is big?', o:['the blue one','the red one','the green one','the yellow one'], a:1, why:'The red one is big。'},
+      {q:'Which balloon can fly high?', o:['the yellow one','the blue one','the red one','the green one'], a:0, why:'The yellow one can fly high。'},
+      {q:'Who gets the green balloon?', o:['my mother','my teacher','my friend','my sister'], a:2, why:'I give the green one to my friend。'},
+    ]},
+  { t:'My Sunday', text:'Today is Sunday. I get up early. I play with my dog in the park. Then I do my homework. In the evening, I read a book. I am happy today.',
+    qs:[
+      {q:'What day is it?', o:['Monday','Friday','Sunday','Saturday'], a:2, why:'Today is Sunday。'},
+      {q:'Where does the child play with the dog?', o:['at home','in the park','at school','in the zoo'], a:1, why:'I play with my dog in the park。'},
+      {q:'What does the child do in the evening?', o:['read a book','watch TV','play games','sleep'], a:0, why:'In the evening, I read a book。'},
+    ]},
+];
+function startReading(){
+  startActivity('reading');
+  app.innerHTML='';
+  app.appendChild($(`<div class="topbar"><button class="back">← 返回</button><div class="title-sm">📖 阅读理解 · 选一篇</div></div>`));
+  app.querySelector('.back').onclick=()=>{ endActivity(); home(); };
+  READINGS.forEach((r,i)=>{
+    const row=$(`<div class="unit-row"><div><div class="n">📄 ${r.t}</div><div class="c">${r.text.split(' ').length} words · 3 题</div></div><div>›</div></div>`);
+    row.onclick=()=>readingDetail(i);
+    app.appendChild(row);
+  });
+}
+function readingDetail(idx){
+  const r=READINGS[idx]; let qi=0, correct=0;
+  function render(){
+    const q=r.qs[qi];
+    app.innerHTML='';
+    app.appendChild($(`<div class="topbar"><button class="back">← 返回</button><div class="title-sm">${r.t} (${qi+1}/${r.qs.length})</div></div>`));
+    app.querySelector('.back').onclick=()=>startReading();
+    const passage=$(`<div class="card" style="font-size:17px;line-height:1.9;color:#333;background:#e6fcf5;">${r.text} <button class="speak" id="rd" style="margin-top:8px;display:block;">🔊 朗读短文</button></div>`);
+    app.appendChild(passage);
+    passage.querySelector('#rd').onclick=()=>speak(r.text);
+    const card=$(`<div class="card"><div class="q-prompt" style="text-align:left;">❓ ${q.q}</div></div>`);
+    const grid=$(`<div style="display:grid;gap:10px;"></div>`);
+    q.o.forEach((opt,oi)=>{
+      const b=$(`<div class="opt" style="text-align:left;font-size:16px;">${'ABCD'[oi]}. ${opt}</div>`);
+      b.onclick=()=>{
+        if(b.dataset.done) return;
+        grid.querySelectorAll('.opt').forEach(x=>x.dataset.done='1');
+        if(oi===q.a){
+          b.classList.add('right'); correct++; addStar(2); sfxRight(); comboHit(); toast(praise(combo>=3?'combo':'default',combo),1100);
+        }else{
+          b.classList.add('wrong'); sfxWrong(); comboReset(); toast('🤔');
+          grid.querySelectorAll('.opt').forEach((x,i)=>{ if(i===q.a) x.classList.add('right'); });
+          card.appendChild($(`<div style="background:#fff3e6;border-radius:12px;padding:12px;margin-top:12px;font-size:14px;color:#c9450c;line-height:1.6;">💡 ${q.why}</div>`));
+          logWrong({en:'rd:'+r.t+':'+qi, cn:q.why, pic:'📖'}, '阅读理解');
+        }
+        setTimeout(()=>{ if(qi<r.qs.length-1){qi++;render();} else finish(); }, oi===q.a?1100:2600);
+      };
+      grid.appendChild(b);
+    });
+    card.appendChild(grid);
+    app.appendChild(card);
+  }
+  function finish(){
+    logResult(correct, r.qs.length); endActivity(); sfxWin();
+    app.innerHTML='';
+    app.appendChild($(`<div class="card done"><div class="big">${correct===r.qs.length?'🏆':'💪'}</div><div class="msg">答对 ${correct}/${r.qs.length}<br>获得 ${correct*2}⭐</div></div>`));
+    app.appendChild($(`<button class="btn btn-primary" id="next">📖 换一篇</button>`));
+    app.appendChild($(`<div style="height:12px"></div>`));
+    app.appendChild($(`<button class="btn btn-ghost" id="bk">回首页</button>`));
+    app.querySelector('#next').onclick=startReading;
+    app.querySelector('#bk').onclick=home;
+  }
+  render();
 }
 
 function parseDay(key){ const [y,m,d]=key.split('-').map(Number); return new Date(y,m-1,d); }
@@ -566,6 +672,22 @@ function dayDetailPage(date){
         ? Object.keys(b.time).sort((x,y)=>b.time[y]-b.time[x]).map(m=>`<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px dashed #eee;"><span>${MODE_NAME[m]||m}</span><b>${fmtMs(b.time[m])}</b></div>`).join('')
         : '<div style="color:#8a8a8a;padding:6px 0;">这天没有学习记录</div>'}
     </div>`));
+}
+
+/* —— 内在成长看板：用真实 LOG 算"本周 vs 上周"，展示能力增长而非纯积分 —— */
+function growthHtml(){
+  function sumCorrect(start,end){ let c=0; for(let i=start;i<=end;i++){const d=new Date();d.setDate(d.getDate()-i);const b=LOG[ymd(d)]; if(b)c+=b.correct||0;} return c; }
+  const wk=sumCorrect(0,6), lw=sumCorrect(7,13), diff=wk-lw;
+  const badge = diff>0?`<span style="color:#2b8a3e;font-weight:800;">↑ 比上周多对 ${diff} 题</span>`
+              : diff<0?`<span style="color:#e8590c;font-weight:800;">比上周少 ${-diff} 题，加把劲 💪</span>`
+              : `<span style="color:#1971c2;font-weight:800;">和上周持平，稳住 👍</span>`;
+  const wrong=Object.values(WRONG), near=wrong.filter(w=>(w.stage||0)>=3).length;
+  return `<div class="card">
+    <div class="title-sm" style="margin-bottom:8px;">🌱 我的成长</div>
+    <div style="font-size:14px;line-height:1.9;">
+      📈 本周做对 <b>${wk}</b> 题（上周 ${lw} 题）— ${badge}<br>
+      🎓 错词本还剩 <b>${wrong.length}</b> 个待消化${near?`，其中 <b>${near}</b> 个快掌握啦`:''}
+    </div></div>`;
 }
 
 /* ============================================================
@@ -608,6 +730,9 @@ function reportPage(){
       <div style="font-size:14px;font-weight:700;margin:6px 0 2px;">各模块用时：</div>
       ${modeRows}
     </div>`));
+
+  // —— 内在成长看板（本周对题 vs 上周 + 错题消化）——
+  app.appendChild($(growthHtml()));
 
   // —— 累计卡片 ——
   app.appendChild($(`
@@ -727,14 +852,15 @@ function home(){
   footHint.innerHTML = '提示：第一次点发音可能没声音，再点一次即可（浏览器需要一次互动才允许播放）。';
   app.innerHTML='';
   // ——学习地图：打卡 + 等级——
-  if(isNewCheckIn){ isNewCheckIn=false; addStar(3); setTimeout(()=>toast('🎁 打卡+3⭐',1200),300); }
+  if(isNewCheckIn){ isNewCheckIn=false; addStar(3); setTimeout(()=>toast('🎁 打卡+3⭐',1200),300);
+    if(_shieldUsed){ _shieldUsed=false; setTimeout(()=>toast('🛡️ 补签卡帮你保住了连续打卡！',2600),1400); } }
   const li = levelInfo();
   const banner=$(`
     <div class="card" style="background:linear-gradient(135deg,#fff,#fff3e6);">
       <div style="display:flex;align-items:center;justify-content:space-between;">
         <div>
           <div style="font-size:20px;font-weight:800;">${li.emoji} ${li.title}</div>
-          <div style="font-size:13px;color:#8a8a8a;margin-top:4px;">🔥 连续打卡 <b>${streak}</b> 天 ｜ 累计 <b>${totalDays}</b> 天 ｜ ⭐ ${stars}</div>
+          <div style="font-size:13px;color:#8a8a8a;margin-top:4px;">🔥 连续打卡 <b>${streak}</b> 天 ｜ 🛡️ <b>${shield}</b> 补签卡 ｜ ⭐ ${stars}</div>
         </div>
         <div style="font-size:40px;">${li.emoji}</div>
       </div>
@@ -765,6 +891,8 @@ function home(){
           <span class="emoji">🔨</span><div class="t">打地鼠</div><div class="d">听音拍词 · 限时</div></div>
         <div class="mode" style="background:linear-gradient(135deg,#ff6b9d,#ff8c42)" data-go="dialog">
           <span class="emoji">💬</span><div class="t">情景对话</div><div class="d">听对话 · 选答句</div></div>
+        <div class="mode" style="background:linear-gradient(135deg,#20c997,#0ca678)" data-go="reading">
+          <span class="emoji">📖</span><div class="t">阅读理解</div><div class="d">读短文 · 答问题</div></div>
         <div class="mode btn-ghost" style="color:#c92a52;" data-go="review">
           <span class="emoji">📕</span><div class="t">错词专项</div><div class="d">优先到期错词</div></div>
       </div>
@@ -774,6 +902,7 @@ function home(){
     el.onclick=()=>{ const m=el.dataset.go;
       if(m==='quiz'){ startQuiz(allWords(),'闯关测验',{mix:true}); }
       else if(m==='dialog'){ startDialog(); }
+      else if(m==='reading'){ startReading(); }
       else if(m==='review'){ startReview(); }
       else { chooseUnit(m); }
     };
