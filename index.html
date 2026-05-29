@@ -527,8 +527,9 @@ function recordSay(target, onResult){  // 录一次，回调(score, heard)
 
 /* 错词专项练习：只练错词本里的词，答对自动从错词本消化 */
 function startReview(){
-  const pool = Object.values(WRONG).map(w=>({en:w.en, cn:w.cn, pic:w.pic}));
-  if(pool.length<1){ toast('🎉'); return; }
+  // 对话错题(dlg:)只存了场景key+解释，没存正确英文句，不能当单词题考——过滤掉，避免乱码
+  const pool = Object.values(WRONG).filter(w=>!String(w.en).startsWith('dlg:')).map(w=>({en:w.en, cn:w.cn, pic:w.pic}));
+  if(pool.length<1){ toast('🎉 没有要复习的错词啦！',1500); return; }
   startQuiz(pool, '错词专项练习', {mix:true, track:'quiz'});
 }
 
