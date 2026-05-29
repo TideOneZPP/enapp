@@ -931,7 +931,7 @@ function chooseUnit(mode){
    ============================================================ */
 function startLearn(unit){
   startActivity('learn');
-  let i=0; const ws=unit.words;
+  let i=0; const ws=shuffle(unit.words);  // 每次进卡随机顺序，不再每次都一样
   function render(){
     const w=ws[i];
     app.innerHTML='';
@@ -1264,7 +1264,7 @@ function startWhack(unit){
     // 选目标 + 几个干扰，随机塞进地鼠洞
     target = ws[Math.floor(Math.random()*ws.length)];
     tgtEl.textContent = target.cn;
-    const others = shuffle(ws.filter(x=>x.en!==target.en)).slice(0,5);
+    const others = shuffle(allWords().filter(x=>x.en!==target.en)).slice(0,5);  // 干扰项扩到全局词池，更多变
     const pool = shuffle([target, ...others]);
     moles.forEach((m,i)=>{
       m.classList.remove('up');
