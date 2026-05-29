@@ -1323,7 +1323,7 @@ function startMatch(unit){
   const wrap=$(`<div class="card"><div class="match-grid"></div></div>`);
   const grid=wrap.querySelector('.match-grid');
   cards.forEach((c,idx)=>{
-    const face = c.type==='pic' ? `<div class="face back" style="flex-direction:column;"><div style="font-size:34px;">${c.w.pic}</div><div style="font-size:13px;font-weight:700;color:#8a8a8a;">${c.w.cn}</div></div>`
+    const face = c.type==='pic' ? `<div class="face back" style="flex-direction:column;"><div style="font-size:34px;">${c.w.pic}</div><div style="font-size:13px;font-weight:700;color:#8a8a8a;">${c.w.en}</div></div>`
                                 : `<div class="face back word">${c.w.en}</div>`;
     const el=$(`<div class="mcard" data-i="${idx}"><div class="inner"><div class="face front">❓</div>${face}</div></div>`);
     el.onclick=()=>{
@@ -1374,7 +1374,7 @@ function startWhack(unit){
   app.querySelector('.back').onclick=()=>{ stop(); chooseUnit('whack'); };
   const card=$(`<div class="card">
       <div class="whack-top">
-        <div>🔊 听一听，拍中正确的地鼠！</div>
+        <div>👀 看单词 + 🔊 听发音，拍中对应的图！</div>
         <div class="tgt" id="tgt">准备…</div>
         <div style="font-size:14px;color:#8a8a8a">得分 <b id="sc">0</b> ｜ 剩余 <b id="tl">30</b>s</div>
       </div>
@@ -1396,7 +1396,7 @@ function startWhack(unit){
   function newRound(){
     // 选目标 + 几个干扰，随机塞进地鼠洞
     target = ws[Math.floor(Math.random()*ws.length)];
-    tgtEl.textContent = target.cn;
+    tgtEl.textContent = target.en;   // 顶部显英文单词（英语 App 主考词形），同时朗读
     const others = shuffle(allWords().filter(x=>x.en!==target.en)).slice(0,5);  // 干扰项扩到全局词池，更多变
     const pool = shuffle([target, ...others]);
     moles.forEach((m,i)=>{
